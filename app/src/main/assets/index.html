@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="color-scheme" content="dark">
+<title>웹툰 뷰어</title>
+<style>
+:root{--bg:#1a1b1f;--bar:rgba(33,35,41,.95);--line:#3a3d46;--fg:#e8e9ec;--sub:#9a9ea9;--ac:#8ab8ff}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,"Noto Sans KR","Noto Sans CJK KR",sans-serif}
+body{overflow-x:auto;touch-action:pan-x pan-y;overscroll-behavior:none;-webkit-user-select:none;user-select:none}
+
+#top,#bot{position:fixed;left:0;right:0;z-index:10;background:var(--bar);transition:transform .25s}
+#top{top:0;display:flex;gap:10px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--line);font-size:13px}
+#bot{bottom:0;display:flex;flex-direction:column;gap:8px;padding:8px 10px calc(8px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line);font-size:13px}
+body.nobar #top{transform:translateY(-110%)}
+body.nobar #bot{transform:translateY(110%)}
+body.empty #top,body.empty #bot{display:none}
+#title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--sub)}
+#info{white-space:nowrap;color:var(--sub);font-variant-numeric:tabular-nums}
+.row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.xtra{display:none}
+#bot.more .xtra{display:flex}
+button{font:inherit;color:var(--fg);background:#2c2f37;border:1px solid var(--line);border-radius:8px;padding:8px 11px;min-height:38px}
+button:active{background:#383c47}
+button.on{background:var(--ac);border-color:var(--ac);color:#10131a}
+#zl,#sl{min-width:3.4em;text-align:center;color:var(--sub);font-variant-numeric:tabular-nums}
+#sl{min-width:5.2em}
+.sep{flex:1}
+input[type=range]{flex:1;min-width:90px;accent-color:var(--ac)}
+
+#wrap{display:flex;justify-content:safe center;min-width:100%;padding-bottom:40px}
+#strip{flex:none}
+#strip img{display:block;width:100%;height:auto;background:#22242a;-webkit-user-drag:none}
+.unk{min-height:240px}
+body.h{overflow-x:scroll}
+body.h #wrap{width:max-content;padding:0 40px 0 0}
+body.h #strip{display:flex;flex-direction:row;width:max-content}
+body.h #strip img{flex:none;width:auto;height:100%;max-width:none}
+body.h .unk{min-height:0;min-width:240px}
+
+#empty{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:16px;text-align:center;padding:24px}
+body.empty #empty{display:flex}
+#empty h1{margin:0;font-size:24px;font-weight:600}
+#empty p{margin:0;color:var(--sub);line-height:1.7;font-size:14px}
+#empty .col{display:flex;flex-direction:column;gap:10px;width:min(280px,80vw)}
+#empty button{padding:13px 22px;font-size:16px}
+#toast{position:fixed;left:50%;top:64px;transform:translate(-50%,-10px);z-index:40;background:#000c;color:#fff;padding:9px 16px;border-radius:8px;opacity:0;transition:.2s;pointer-events:none;max-width:86vw;font-size:14px;text-align:center}
+#toast.show{opacity:1;transform:translate(-50%,0)}
+@media (prefers-reduced-motion:reduce){#top,#bot,#toast{transition:none}}
+</style>
+</head>
+<body class="empty">
+
+<div id="top"><span id="title"></span><span id="info"></span></div>
+
+<div id="bot">
+  <div class="row">
+    <button id="auto">▶ 자동스크롤</button>
+    <input id="sp" type="range" min="10" max="3000" step="10">
+    <span id="sl"></span>
+  </div>
+  <div class="row">
+    <button id="zo" aria-label="축소">－</button><span id="zl">100%</span><button id="zi" aria-label="확대">＋</button>
+    <button id="zf">폭 맞춤</button>
+    <span class="sep"></span>
+    <button id="mV">세로</button><button id="mH">가로</button>
+  </div>
+  <div class="row">
+    <button id="jTop">맨 위</button><button id="jMid">중간</button><button id="jEnd">맨 아래</button>
+    <span class="sep"></span>
+    <button id="more">더보기 ⋯</button>
+  </div>
+  <div class="row xtra">
+    <button id="bFolder">폴더 열기</button><button id="bFile">압축파일</button><button id="bImg">이미지 선택</button>
+  </div>
+  <div class="row xtra">
+    <button id="fs">전체화면</button><button id="quit">종료</button>
+  </div>
+</div>
+
+<div id="wrap"><div id="strip"></div></div>
+
+<div id="empty">
+  <h1>웹툰 뷰어</h1>
+  <p>이미지가 들어 있는 폴더나 압축파일(zip, cbz)을 열면<br>세로로 이어서 웹툰처럼 볼 수 있어요.</p>
+  <div class="col">
+    <button id="eFolder">폴더 열기</button>
+    <button id="eFile">압축파일 열기 (zip / cbz)</button>
+    <button id="eImg">이미지 직접 선택</button>
+  </div>
+  <p>화면 탭: 메뉴 보이기/숨기기<br>두 번 탭: 자동스크롤 시작/정지<br>두 손가락 벌리기/모으기: 확대/축소<br>자동스크롤 중 볼륨 키: 속도 조절</p>
+</div>
+<div id="toast"></div>
+
+<script>
+(()=>{
+const $=s=>document.querySelector(s);
+const doc=document.documentElement, strip=$('#strip'), body=document.body;
+const A=window.Android||{pick(){},setAuto(){},setFullscreen(){},quit(){}};
+const LS={
+  get(k){try{return localStorage.getItem(k);}catch(e){return null;}},
+  set(k,v){try{localStorage.setItem(k,v);}catch(e){}}
+};
+let mode=LS.get('wv:mode')==='h'?'h':'v';          // v: 세로(기본), h: 가로
+let zoom=+LS.get(mode==='h'?'wv:zoomh':'wv:zoom')||100;   // 100 = 화면 폭(또는 높이)에 맞춤
+let speed=+LS.get('wv:speed')||120;
+let auto=false, imgs=[], key='', fsOn=false;
+const ZMIN=40, ZMAX=400;
+
+/* ---------- 알림 ---------- */
+let toastT;
+function toast(msg,ms=2200){
+  const t=$('#toast'); clearTimeout(toastT);
+  if(!msg){t.classList.remove('show');return;}
+  t.textContent=msg; t.classList.add('show');
+  if(ms)toastT=setTimeout(()=>t.classList.remove('show'),ms);
+}
+
+/* ---------- 레이아웃 · 확대/축소 · 이동 ---------- */
+const V=()=>mode==='v';
+const axisPos=()=>V()?scrollY:scrollX;
+const maxPos=()=>V()?doc.scrollHeight-doc.clientHeight:doc.scrollWidth-doc.clientWidth;
+function layout(){
+  body.classList.toggle('h',!V());
+  if(V()){
+    strip.style.height=''; strip.style.width=Math.round(doc.clientWidth*zoom/100)+'px';
+    body.style.overflowY='';
+  }else{
+    strip.style.width=''; strip.style.height=Math.round(doc.clientHeight*zoom/100)+'px';
+    body.style.overflowY=zoom<=100?'hidden':'';
+  }
+  $('#zl').textContent=Math.round(zoom)+'%';
+  $('#mV').classList.toggle('on',V()); $('#mH').classList.toggle('on',!V());
+  $('#zf').textContent=V()?'폭 맞춤':'높이 맞춤';
+  $('#jTop').textContent=V()?'맨 위':'맨 앞';
+  $('#jEnd').textContent=V()?'맨 아래':'맨 끝';
+}
+// 화면 중앙을 기준으로 한 위치(0~1). 확대/축소해도 보던 자리가 유지된다.
+function ratio(){
+  const s=V()?doc.scrollHeight:doc.scrollWidth;
+  return s?(axisPos()+(V()?doc.clientHeight:doc.clientWidth)/2)/s:0;
+}
+function crossRatio(){
+  const s=V()?doc.scrollWidth:doc.scrollHeight;
+  return s?((V()?scrollX+doc.clientWidth/2:scrollY+doc.clientHeight/2))/s:.5;
+}
+function gotoRatio(r,c=.5){
+  if(V())scrollTo(c*doc.scrollWidth-doc.clientWidth/2, r*doc.scrollHeight-doc.clientHeight/2);
+  else scrollTo(r*doc.scrollWidth-doc.clientWidth/2, c*doc.scrollHeight-doc.clientHeight/2);
+}
+function setZoom(z,keep=true){
+  zoom=Math.max(ZMIN,Math.min(ZMAX,z));
+  LS.set(V()?'wv:zoom':'wv:zoomh',zoom);
+  const r=keep?ratio():0, c=keep?crossRatio():.5;
+  layout();
+  if(keep)gotoRatio(r,c);
+  updInfo();
+}
+function setMode(m){
+  if(m===mode)return;
+  const r=ratio();
+  mode=m; LS.set('wv:mode',m);
+  zoom=+LS.get(V()?'wv:zoom':'wv:zoomh')||100;
+  layout(); gotoRatio(r); updInfo();
+  toast(V()?'세로 보기':'가로 보기',1200);
+}
+function jump(f){
+  const m=Math.max(0,maxPos());
+  if(V())scrollTo(scrollX,m*f); else scrollTo(m*f,scrollY);
+}
+
+/* ---------- 자동 스크롤 ---------- */
+let last=0,pos=0;
+function setSpeed(v){
+  speed=Math.max(10,Math.min(3000,v));
+  LS.set('wv:speed',speed);
+  $('#sp').value=speed; $('#sl').textContent=speed+' px/초';
+}
+function tick(t){
+  if(!auto)return;
+  const dt=Math.min(.1,(t-last)/1000); last=t;
+  if(Math.abs(axisPos()-pos)>2)pos=axisPos();   // 손으로 직접 움직였으면 그 자리부터 이어가기
+  pos+=speed*dt;
+  const max=maxPos();
+  if(pos>=max){if(V())scrollTo(scrollX,max);else scrollTo(max,scrollY);stopAuto();toast('끝까지 왔어요');return;}
+  if(V())scrollTo(scrollX,pos);else scrollTo(pos,scrollY);
+  requestAnimationFrame(tick);
+}
+function startAuto(){
+  if(!imgs.length)return;
+  auto=true; pos=axisPos(); last=performance.now();
+  $('#auto').classList.add('on'); $('#auto').textContent='⏸ 정지';
+  A.setAuto(true);
+  requestAnimationFrame(tick);
+  showBar();
+}
+function stopAuto(){
+  auto=false; $('#auto').classList.remove('on'); $('#auto').textContent='▶ 자동스크롤';
+  A.setAuto(false);
+}
+const toggleAuto=()=>auto?stopAuto():startAuto();
+
+/* ---------- 표시 ---------- */
+function render(items,k){
+  stopAuto();
+  strip.innerHTML='';
+  imgs=items.map(it=>{
+    const im=document.createElement('img');
+    if(it.w&&it.h){
+      im.width=it.w; im.height=it.h; im.style.aspectRatio='auto '+it.w+'/'+it.h;
+      im.loading='lazy';
+    }else{
+      im.className='unk';
+      im.onload=()=>im.classList.remove('unk');
+    }
+    im.decoding='async'; im.alt=''; im.draggable=false;
+    im.src=it.url;
+    strip.appendChild(im);
+    return im;
+  });
+  key=k||'';
+  body.classList.toggle('empty',!items.length);
+  setZoom(zoom,false);
+  gotoRatio(0);
+  const p=parseFloat(LS.get('wv:pos:'+key));
+  if(p>0.001)requestAnimationFrame(()=>{gotoRatio(p);updInfo();});
+  updInfo(); showBar();
+}
+function applyState(s){
+  $('#title').textContent=s.title||'';
+  document.title=s.loaded?s.title+' - 웹툰 뷰어':'웹툰 뷰어';
+  render(s.loaded?s.items.map((d,i)=>({w:d[0],h:d[1],url:'/img/'+i+'?v='+s.ver})):[],s.key);
+  if(s.loaded)toast(s.items.length+'장을 불러왔어요',1800);
+}
+
+/* ---------- 현재 위치 표시/저장 ---------- */
+function updInfo(){
+  if(!imgs.length){$('#info').textContent='';return;}
+  const c=V()?scrollY+doc.clientHeight/2:scrollX+doc.clientWidth/2;
+  let lo=0,hi=imgs.length-1;
+  while(lo<hi){const m=(lo+hi+1)>>1; if((V()?imgs[m].offsetTop:imgs[m].offsetLeft)<=c)lo=m; else hi=m-1;}
+  const max=maxPos();
+  const pct=max>0?Math.round(axisPos()/max*100):100;
+  $('#info').textContent=(lo+1)+' / '+imgs.length+'  ('+pct+'%)';
+}
+let ticking=false,saveT;
+addEventListener('scroll',()=>{
+  if(!ticking){ticking=true;requestAnimationFrame(()=>{ticking=false;updInfo();});}
+  clearTimeout(saveT);
+  saveT=setTimeout(()=>{if(key&&maxPos()>0)LS.set('wv:pos:'+key,ratio());},400);
+},{passive:true});
+
+/* ---------- 메뉴 자동 숨김 / 탭 동작 ---------- */
+let hideT;
+function showBar(){
+  body.classList.remove('nobar'); clearTimeout(hideT);
+  hideT=setTimeout(hideBar,4500);
+}
+function hideBar(){
+  if(!imgs.length)return;
+  body.classList.add('nobar'); $('#bot').classList.remove('more');
+}
+$('#top').addEventListener('touchstart',showBar,{passive:true});
+$('#bot').addEventListener('touchstart',showBar,{passive:true});
+$('#sp').addEventListener('input',showBar);
+
+let tapT=0;
+$('#wrap').addEventListener('click',()=>{
+  if(tapT){          // 두 번 탭: 자동스크롤 시작/정지
+    clearTimeout(tapT); tapT=0;
+    toggleAuto();
+    return;
+  }
+  tapT=setTimeout(()=>{
+    tapT=0;
+    if(body.classList.contains('nobar'))showBar(); else hideBar();
+  },260);
+});
+
+/* ---------- 두 손가락 확대/축소 ---------- */
+const dist=t=>Math.hypot(t[0].clientX-t[1].clientX,t[0].clientY-t[1].clientY);
+let pz=null,pendZ=0,rafZ=0;
+addEventListener('touchstart',e=>{
+  if(e.touches.length===2)pz={d:dist(e.touches),z:zoom};
+},{passive:true});
+addEventListener('touchmove',e=>{
+  if(pz&&e.touches.length===2){
+    if(e.cancelable)e.preventDefault();
+    pendZ=pz.z*dist(e.touches)/pz.d;
+    if(!rafZ)rafZ=requestAnimationFrame(()=>{rafZ=0;setZoom(pendZ);});
+  }
+},{passive:false});
+addEventListener('touchend',e=>{if(e.touches.length<2)pz=null;},{passive:true});
+addEventListener('touchcancel',()=>{pz=null;},{passive:true});
+
+/* ---------- 앱(코틀린) 연동 ---------- */
+async function reload(){
+  try{
+    const r=await fetch('/api/state');
+    applyState(await r.json());
+  }catch(e){toast('오류: '+e,4000);}
+}
+window.wvReload=reload;
+window.wvToast=toast;
+window.wvSpeed=d=>{setSpeed(speed+d);toast('속도 '+speed+' px/초',900);};
+window.wvFs=on=>{fsOn=!!on;$('#fs').classList.toggle('on',fsOn);};
+
+/* ---------- 버튼 ---------- */
+const open_=k=>()=>{A.pick(k);};
+$('#bFolder').onclick=$('#eFolder').onclick=open_('folder');
+$('#bFile').onclick=$('#eFile').onclick=open_('file');
+$('#bImg').onclick=$('#eImg').onclick=open_('images');
+$('#zi').onclick=()=>setZoom(zoom*1.15);
+$('#zo').onclick=()=>setZoom(zoom/1.15);
+$('#zf').onclick=()=>setZoom(100);
+$('#mV').onclick=()=>setMode('v');
+$('#mH').onclick=()=>setMode('h');
+$('#jTop').onclick=()=>jump(0);
+$('#jMid').onclick=()=>jump(.5);
+$('#jEnd').onclick=()=>jump(1);
+$('#auto').onclick=toggleAuto;
+$('#sp').oninput=e=>setSpeed(+e.target.value);
+$('#more').onclick=()=>{$('#bot').classList.toggle('more');showBar();};
+$('#fs').onclick=()=>{fsOn=!fsOn;$('#fs').classList.toggle('on',fsOn);A.setFullscreen(fsOn);};
+$('#quit').onclick=()=>A.quit();
+addEventListener('keydown',e=>{   // 블루투스 키보드용
+  if(e.ctrlKey||e.altKey||e.metaKey)return;
+  const k=e.key;
+  if(k===' '){e.preventDefault();toggleAuto();}
+  else if(k==='+'||k==='=')setZoom(zoom*1.15);
+  else if(k==='-'||k==='_')setZoom(zoom/1.15);
+  else if(k==='0')setZoom(100);
+  else if(k===']')setSpeed(speed+20);
+  else if(k==='[')setSpeed(speed-20);
+  else if(k==='Home'){e.preventDefault();jump(0);}
+  else if(k==='End'){e.preventDefault();jump(1);}
+  else if(k==='v'||k==='V')setMode(V()?'h':'v');
+});
+
+/* ---------- 시작 ---------- */
+addEventListener('resize',()=>{
+  const r=ratio(), c=crossRatio();
+  layout(); gotoRatio(r,c); updInfo();
+});
+setSpeed(speed); setZoom(zoom,false);
+reload();
+})();
+</script>
+</body>
+</html>
