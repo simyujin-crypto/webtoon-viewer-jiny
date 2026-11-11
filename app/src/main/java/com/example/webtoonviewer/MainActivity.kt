@@ -65,7 +65,7 @@ class MainActivity : AppCompatActivity() {
     // ------------------------------------------------------------ 생명주기
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        cacheDir.listFiles()?.forEach { if (it.name.startsWith("zip_")) it.delete() }
+        cacheDir.listFiles()?.forEach { if (it.name.startsWith("zip_")) it.deleteRecursively() }
 
         web = WebView(this)
         web.setBackgroundColor(Color.parseColor("#1A1B1F"))
@@ -91,7 +91,7 @@ class MainActivity : AppCompatActivity() {
         if (isFinishing) {
             loaded?.let {
                 it.source.close()
-                it.temp?.delete()
+                it.temp?.deleteRecursively()
             }
             io.shutdown()
         }
@@ -255,7 +255,7 @@ class MainActivity : AppCompatActivity() {
                 val l = task()
                 if (l.source.count == 0) {
                     l.source.close()
-                    l.temp?.delete()
+                    l.temp?.deleteRecursively()
                     throw IllegalStateException("이미지 파일을 찾을 수 없습니다.")
                 }
                 val old = loaded
@@ -263,7 +263,7 @@ class MainActivity : AppCompatActivity() {
                 ver++
                 if (old != null) {
                     old.source.close()
-                    old.temp?.delete()
+                    old.temp?.deleteRecursively()
                 }
                 js("window.wvReload&&window.wvReload()")
             } catch (e: Throwable) {
@@ -285,16 +285,32 @@ class MainActivity : AppCompatActivity() {
         val name = displayName(contentResolver, uri)
         loadAsync("압축파일을 불러오는 중...") {
             val tmp = File(cacheDir, "zip_" + System.nanoTime() + ".tmp")
+            var exDir: File? = null
             try {
                 val ins = contentResolver.openInputStream(uri) ?: throw java.io.FileNotFoundException(name)
                 ins.use { input -> tmp.outputStream().use { output -> input.copyTo(output, 1 shl 16) } }
-                val src = ZipSource(tmp)
-                Loaded(src, name.substringBeforeLast('.'), "zip:${name.lowercase()}:${tmp.length()}", measure(src), tmp)
+                val size = tmp.length()
+                val key = "zip:" + name.lowercase() + ":" + size
+                val title = name.substringBeforeLast('.')
+                val ext = extOf(name)
+                if (looks7z(tmp) || ext == "7z" || ext == "cb7") {
+                    js("window.wvToast&&window.wvToast('7z 압축을 푸는 중... (파일이 크면 오래 걸려요)',0)")
+                    val dir = File(cacheDir, "zip_ex_" + System.nanoTime())
+                    exDir = dir
+                    val src = extract7z(tmp, dir)
+                    tmp.delete()
+                    Loaded(src, title, key, measure(src), dir)
+                } else {
+                    val src = ZipSource(tmp)
+                    Loaded(src, title, key, measure(src), tmp)
+                }
             } catch (e: java.util.zip.ZipException) {
                 tmp.delete()
-                throw IllegalStateException("zip / cbz 형식만 열 수 있어요. rar, 7z 는 zip 으로 다시 압축해 주세요.")
+                exDir?.deleteRecursively()
+                throw IllegalStateException("zip, cbz, 7z 형식만 열 수 있어요. rar 는 zip 이나 7z 로 다시 압축해 주세요.")
             } catch (e: Throwable) {
                 tmp.delete()
+                exDir?.deleteRecursively()
                 throw e
             }
         }

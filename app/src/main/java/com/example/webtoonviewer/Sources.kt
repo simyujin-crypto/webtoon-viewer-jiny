@@ -5,6 +5,7 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
+import org.apache.commons.compress.archivers.sevenz.SevenZFile
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.InputStream
@@ -210,4 +211,60 @@ class UriListSource(private val cr: ContentResolver, uris: List<Uri>) : ImageSou
         cr.openInputStream(items[i].second) ?: throw FileNotFoundException(items[i].first)
 
     override fun close() {}
+}
+
+/** 파일 맨 앞 6바이트가 7z 표식인지 확인 */
+fun looks7z(file: File): Boolean {
+    return try {
+        file.inputStream().use { ins ->
+            val b = ByteArray(6)
+            ins.read(b) == 6 &&
+                b[0] == 0x37.toByte() && b[1] == 0x7A.toByte() && b[2] == 0xBC.toByte() &&
+                b[3] == 0xAF.toByte() && b[4] == 0x27.toByte() && b[5] == 0x1C.toByte()
+        }
+    } catch (_: Exception) {
+        false
+    }
+}
+
+/** 임시 폴더에 풀어 둔 이미지 파일 목록 (7z 용) */
+class FileListSource(items: List<Pair<String, File>>) : ImageSource {
+    private val list = ArrayList<Pair<String, File>>(items)
+
+    init {
+        list.sortWith(Comparator { a, b -> natCompare(a.first, b.first) })
+    }
+
+    override val count: Int get() = list.size
+    override fun name(i: Int): String = list[i].first
+    override fun open(i: Int): InputStream = list[i].second.inputStream()
+    override fun close() {}
+}
+
+/** 7z 안의 이미지만 outDir 에 풀어서 목록으로 돌려준다 */
+fun extract7z(file: File, outDir: File): FileListSource {
+    outDir.mkdirs()
+    val items = ArrayList<Pair<String, File>>()
+    SevenZFile(file).use { z ->
+        var n = 0
+        val buf = ByteArray(1 shl 16)
+        while (true) {
+            val e = z.nextEntry ?: break
+            if (e.isDirectory) continue
+            val nm = e.name ?: continue
+            val base = nm.replace('\\', '/').substringAfterLast('/')
+            if (nm.contains("__MACOSX") || base.startsWith("._") || !isImageName(base)) continue
+            val out = File(outDir, "img_" + n + "." + extOf(base))
+            n++
+            out.outputStream().use { os ->
+                while (true) {
+                    val r = z.read(buf)
+                    if (r < 0) break
+                    os.write(buf, 0, r)
+                }
+            }
+            items.add(Pair(nm, out))
+        }
+    }
+    return FileListSource(items)
 }

@@ -20,7 +20,7 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- 파일 관리자에서 zip / cbz 를 웹툰 뷰어로 열기 -->
+            <!-- 파일 관리자에서 zip / cbz / 7z 를 웹툰 뷰어로 열기 -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -31,6 +31,7 @@
                 <data android:mimeType="application/x-zip-compressed" />
                 <data android:mimeType="application/x-cbz" />
                 <data android:mimeType="application/vnd.comicbook+zip" />
+                <data android:mimeType="application/x-7z-compressed" />
             </intent-filter>
         </activity>
     </application>
