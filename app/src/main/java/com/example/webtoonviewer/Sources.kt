@@ -159,11 +159,15 @@ class ZipSource(file: File) : ImageSource {
 }
 
 /** 폴더 선택(SAF) -> 하위 폴더까지 이미지 수집 */
-class FolderSource(private val cr: ContentResolver, tree: Uri) : ImageSource {
+class FolderSource(
+    private val cr: ContentResolver,
+    tree: Uri,
+    rootId: String = DocumentsContract.getTreeDocumentId(tree)
+) : ImageSource {
     private val items = ArrayList<Pair<String, Uri>>()
 
     init {
-        walk(tree, DocumentsContract.getTreeDocumentId(tree), "")
+        walk(tree, rootId, "")
         items.sortWith(Comparator { a, b -> natCompare(a.first, b.first) })
     }
 
@@ -267,4 +271,34 @@ fun extract7z(file: File, outDir: File): FileListSource {
         }
     }
     return FileListSource(items)
+}
+
+val ARCHIVE_EXTS = setOf("zip", "cbz", "7z", "cb7")
+
+/** 연속 보기 폴더 안의 한 회차 (하위 폴더 또는 압축파일) */
+class Episode(val name: String, val docId: String, val isDir: Boolean)
+
+/** 선택한 폴더 바로 아래의 하위 폴더와 압축파일을 이름 순(자연 정렬)으로 모은다 */
+fun listEpisodes(cr: ContentResolver, tree: Uri): List<Episode> {
+    val out = ArrayList<Episode>()
+    val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
+    val cols = arrayOf(
+        DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+        DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+        DocumentsContract.Document.COLUMN_MIME_TYPE
+    )
+    cr.query(children, cols, null, null, null)?.use { c ->
+        while (c.moveToNext()) {
+            val id = c.getString(0) ?: continue
+            val name = c.getString(1) ?: continue
+            val mime = c.getString(2) ?: ""
+            if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
+                out.add(Episode(name, id, true))
+            } else if (extOf(name) in ARCHIVE_EXTS) {
+                out.add(Episode(name, id, false))
+            }
+        }
+    }
+    out.sortWith(Comparator { a, b -> natCompare(a.name, b.name) })
+    return out
 }
